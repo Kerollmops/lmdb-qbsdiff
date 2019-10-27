@@ -56,21 +56,25 @@ impl DifferEnv {
         let rtxn = self.env.read_txn()?;
         let wtxn = self.env.write_txn()?;
 
-        Ok(DifferRwTxn { diff, rtxn, wtxn })
+        Ok(DifferRwTxn { env: self, diff, rtxn, wtxn })
     }
 }
 
-struct DifferRwTxn {
+struct DifferRwTxn<'a> {
+    env: &'a DifferEnv,
     diff: heed::RwTxn,
     rtxn: heed::RoTxn,
     wtxn: heed::RwTxn,
 }
 
-impl DifferRwTxn {
+impl DifferRwTxn<'_> {
     pub fn commit(self) -> heed::Result<()> {
         self.rtxn.abort();
         self.diff.commit()?;
         self.wtxn.commit()?;
+
+        println!("diff stored at {:?}", self.env.tmpdir);
+
         Ok(())
     }
 }
@@ -108,7 +112,7 @@ impl<KC, DC> DifferDatabase<KC, DC> {
             },
         }
 
-        self.db.put::<KC, DC>(&mut txn.wtxn, key, data)
+        self.db.put::<ByteSlice, ByteSlice>(&mut txn.wtxn, &key_bytes, &data_bytes)
     }
 
     pub fn delete<'a>(
@@ -123,7 +127,7 @@ impl<KC, DC> DifferDatabase<KC, DC> {
         let rich_diff = RichDiff::Deletion;
         self.diff.put(&mut txn.diff, &key_bytes, &rich_diff)?;
 
-        self.db.delete::<KC>(&mut txn.wtxn, key)
+        self.db.delete::<ByteSlice>(&mut txn.wtxn, &key_bytes)
     }
 }
 
@@ -142,7 +146,6 @@ fn main() -> Result<(), MainError> {
 
     wtxn.commit()?;
 
-    println!("diff stored at {:?}", env.tmpdir);
     let wtxn = env.write_txn()?;
 
     let ret = db.diff.get(&wtxn.diff, b"hello")?;

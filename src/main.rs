@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::marker;
-use std::ops::Deref;
 use std::path::Path;
 use std::{fs, io};
 
@@ -53,30 +52,25 @@ impl DifferEnv {
     }
 
     pub fn write_txn(&self) -> heed::Result<DifferRwTxn> {
-        let txn = self.env.write_txn()?;
         let diff = self.diff.write_txn()?;
+        let rtxn = self.env.read_txn()?;
+        let wtxn = self.env.write_txn()?;
 
-        Ok(DifferRwTxn { diff, txn })
+        Ok(DifferRwTxn { diff, rtxn, wtxn })
     }
 }
 
 struct DifferRwTxn {
     diff: heed::RwTxn,
-    txn: heed::RwTxn,
-}
-
-impl Deref for DifferRwTxn {
-    type Target = heed::RoTxn;
-
-    fn deref(&self) -> &Self::Target {
-        &self.txn
-    }
+    rtxn: heed::RoTxn,
+    wtxn: heed::RwTxn,
 }
 
 impl DifferRwTxn {
     pub fn commit(self) -> heed::Result<()> {
+        self.rtxn.abort();
         self.diff.commit()?;
-        self.txn.commit()?;
+        self.wtxn.commit()?;
         Ok(())
     }
 }
@@ -101,7 +95,7 @@ impl<KC, DC> DifferDatabase<KC, DC> {
         let key_bytes: Cow<[u8]> = KC::bytes_encode(&key).ok_or(heed::Error::Encoding)?;
         let data_bytes: Cow<[u8]> = DC::bytes_encode(&data).ok_or(heed::Error::Encoding)?;
 
-        match self.db.get::<KC, ByteSlice>(&txn.txn, key)? {
+        match self.db.get::<KC, ByteSlice>(&txn.rtxn, key)? {
             Some(prev) => {
                 let mut patch = Vec::new();
                 Bsdiff::new(&prev, &data_bytes).compare(&mut patch)?;
@@ -114,7 +108,7 @@ impl<KC, DC> DifferDatabase<KC, DC> {
             },
         }
 
-        self.db.put::<KC, DC>(&mut txn.txn, key, data)
+        self.db.put::<KC, DC>(&mut txn.wtxn, key, data)
     }
 
     pub fn delete<'a>(
@@ -129,7 +123,7 @@ impl<KC, DC> DifferDatabase<KC, DC> {
         let rich_diff = RichDiff::Deletion;
         self.diff.put(&mut txn.diff, &key_bytes, &rich_diff)?;
 
-        self.db.delete::<KC>(&mut txn.txn, key)
+        self.db.delete::<KC>(&mut txn.wtxn, key)
     }
 }
 
@@ -141,6 +135,7 @@ fn main() -> Result<(), MainError> {
 
     let mut wtxn = env.write_txn()?;
     db.put(&mut wtxn, "hello", &43)?;
+    db.put(&mut wtxn, "hello", &43)?;
     db.put(&mut wtxn, "bonjour", &42)?;
 
     db.delete(&mut wtxn, "bonjour")?;
@@ -150,9 +145,11 @@ fn main() -> Result<(), MainError> {
     println!("diff stored at {:?}", env.tmpdir);
     let wtxn = env.write_txn()?;
 
-    for result in db.diff.iter(&wtxn.diff)? {
-        println!("{:?}", result);
-    }
+    let ret = db.diff.get(&wtxn.diff, b"hello")?;
+    assert_eq!(ret, Some(RichDiff::Addition(&[43, 0, 0, 0])));
+
+    let ret = db.diff.get(&wtxn.diff, b"bonjour")?;
+    assert_eq!(ret, Some(RichDiff::Deletion));
 
     drop(wtxn);
 

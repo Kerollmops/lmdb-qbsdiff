@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use heed::{BytesEncode, BytesDecode};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RichDiff<'a> {
     Addition(&'a [u8]),
     Patch(&'a [u8]),

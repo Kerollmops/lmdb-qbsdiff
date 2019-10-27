@@ -52,7 +52,7 @@ fn main() -> Result<(), MainError> {
     let rtxn = env.read_txn()?;
 
     let mut rl = rustyline::Editor::<()>::new();
-    for result in rl.iter("lmdb-qbsdiff: ") {
+    for result in rl.iter("slave: ") {
         let line = result?;
         let key = line.trim();
 

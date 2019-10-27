@@ -134,7 +134,7 @@ fn main() -> Result<(), MainError> {
     let mut wtxn = env.write_txn()?;
 
     let mut rl = rustyline::Editor::<()>::new();
-    for result in rl.iter("lmdb-qbsdiff: ") {
+    for result in rl.iter("master: ") {
         let line = result?;
 
         let mut iter = line.split(':');

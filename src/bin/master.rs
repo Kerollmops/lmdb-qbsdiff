@@ -3,14 +3,10 @@ use std::marker;
 use std::path::Path;
 use std::{fs, io};
 
-use heed::types::{ByteSlice, OwnedType, Str};
+use heed::types::{ByteSlice, Str};
 use main_error::MainError;
 use qbsdiff::Bsdiff;
-use rich_diff::{RichDiff, RichCodec};
-
-mod rich_diff;
-
-const ONE_GIGA: usize = 1 * 1024 * 1024 * 1024;
+use lmdb_qbsdiff::{ONE_GIGA, RichDiff, RichCodec};
 
 struct DifferEnv {
     tmpdir: tempfile::TempDir,
@@ -132,29 +128,33 @@ impl<KC, DC> DifferDatabase<KC, DC> {
 }
 
 fn main() -> Result<(), MainError> {
-    let _ = fs::remove_dir_all("target/zerocopy.mdb");
-    let env = DifferEnv::open("target/zerocopy.mdb")?;
-
-    let db = env.create_database::<Str, OwnedType<i32>>(None)?;
+    let env = DifferEnv::open("target/master.mdb")?;
+    let db = env.create_database::<Str, Str>(None)?;
 
     let mut wtxn = env.write_txn()?;
-    db.put(&mut wtxn, "hello", &43)?;
-    db.put(&mut wtxn, "hello", &43)?;
-    db.put(&mut wtxn, "bonjour", &42)?;
 
-    db.delete(&mut wtxn, "bonjour")?;
+    let mut rl = rustyline::Editor::<()>::new();
+    for result in rl.iter("lmdb-qbsdiff: ") {
+        let line = result?;
+
+        let mut iter = line.split(':');
+        let key = iter.next().map(|s| s.trim());
+        let data = iter.next().map(|s| s.trim());
+
+        match (key, data) {
+            (Some(key), Some(data)) => {
+                db.put(&mut wtxn, key, data)?;
+                println!("saved {}:{}", key, data);
+            },
+            (Some(key), None) => {
+                let deleted = db.delete(&mut wtxn, key)?;
+                println!("deleted({}) {}", deleted, key);
+            },
+            _ => (),
+        }
+    }
 
     wtxn.commit()?;
-
-    let wtxn = env.write_txn()?;
-
-    let ret = db.diff.get(&wtxn.diff, b"hello")?;
-    assert_eq!(ret, Some(RichDiff::Addition(&[43, 0, 0, 0])));
-
-    let ret = db.diff.get(&wtxn.diff, b"bonjour")?;
-    assert_eq!(ret, Some(RichDiff::Deletion));
-
-    drop(wtxn);
 
     println!("waiting for you... (press enter)");
     io::stdin().read_line(&mut String::new())?;

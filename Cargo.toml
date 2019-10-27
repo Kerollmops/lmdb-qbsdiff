@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 main_error = "0.1.0"
 qbsdiff = "1.0.0"
+rustyline = { version = "5.0.3", default-features = false }
 tempfile = "3.1.0"
 
 [dependencies.heed]

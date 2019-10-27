@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use heed::{BytesEncode, BytesDecode};
 
+pub const ONE_GIGA: usize = 1 * 1024 * 1024 * 1024;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RichDiff<'a> {
     Addition(&'a [u8]),
